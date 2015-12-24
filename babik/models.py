@@ -59,20 +59,19 @@ class DynamicModel(models.Model):
 		if self.type and self.type in self._meta.types:
 			errors = {}
 			
-			for field in self._meta.virtual_fields:
-				if hasattr(self._meta.types[self.type], field.attname):
-					raw_value = getattr(self, field.attname)
-					if field.blank and raw_value in field.empty_values:
-						continue
-					
-					try:
-						setattr(self, field.attname, field.clean(raw_value, self))
-					
-					except ValidationError as error:
-						errors[field.name] = error.error_list
+			for field in self._meta.types[self.type]._meta.fields:
+				raw_value = getattr(self, field.attname)
+				if field.blank and raw_value in field.empty_values:
+					continue
 				
-				if errors:
-					raise ValidationError(errors)
+				try:
+					setattr(self, field.attname, field.clean(raw_value, self))
+				
+				except ValidationError as error:
+					errors[field.name] = error.error_list
+			
+			if errors:
+				raise ValidationError(errors)
 		
 		super(DynamicModel, self).save(*args, **kwargs)
 	
@@ -86,7 +85,7 @@ class DynamicModel(models.Model):
 			and dct.get(meta.type_field, None) is not None
 			and meta.attrs_field in dct
 			and dct[meta.type_field] in meta.types
-			and hasattr(meta.types[dct[meta.type_field]], name)
+			and name in meta.types[dct[meta.type_field]]._meta._forward_fields_map
 		):
 			return super(DynamicModel, self).__getattribute__(meta.attrs_field).get(name)
 		
@@ -98,9 +97,8 @@ class DynamicModel(models.Model):
 			getattr(self, self._meta.type_field, None) is not None
 			and hasattr(self, self._meta.attrs_field)
 			and getattr(self, self._meta.type_field) in self._meta.types
-			and hasattr(self._meta.types[getattr(self, self._meta.type_field)], name)
+			and name in self._meta.types[getattr(self, self._meta.type_field)]._meta._forward_fields_map
 		):
-			print(name, value)
 			getattr(self, self._meta.attrs_field)[name] = value
 		
 		else:
@@ -111,7 +109,7 @@ class DynamicModel(models.Model):
 			getattr(self, self._meta.type_field, None) is not None
 			and hasattr(self, self._meta.attrs_field)
 			and getattr(self, self._meta.type_field) in self._meta.types
-			and hasattr(self._meta.types[getattr(self, self._meta.type_field)], name)
+			and name in self._meta.types[getattr(self, self._meta.type_field)]._meta._forward_fields_map
 		):
 			del(getattr(self, self._meta.attrs_field)[name])
 		

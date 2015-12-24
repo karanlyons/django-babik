@@ -26,13 +26,7 @@ class DynamicOptions(Options):
 		instance_type = getattr(self.instance, self.type_field, None)
 		
 		if instance_type in self.types:
-			return make_immutable_fields_list(
-				'fields',
-				super(DynamicOptions, self).fields + tuple(
-					field for field in vars(self.types[instance_type]).itervalues()
-					if isinstance(field, models.Field)
-				)
-			)
+			return make_immutable_fields_list('fields', super(DynamicOptions, self).fields + self.types[instance_type]._meta.fields)
 		
 		else:
 			return super(DynamicOptions, self).fields
@@ -42,18 +36,22 @@ class DynamicOptions(Options):
 		instance_type = getattr(self.instance, self.type_field, None)
 		
 		if instance_type in self.types:
-			return self._virtual_fields + [field for field in vars(self.types[instance_type]).itervalues() if isinstance(field, models.Field)]
+			return self._virtual_fields + list(self.types[instance_type]._meta.fields)
 		
 		else:
 			return self._virtual_fields
 	
 	def get_field(self, field_name, many_to_many=None):
 		field = None
-		model_type = getattr(self.instance, self.type_field, None)
+		instance_type = getattr(self.instance, self.type_field, None)
 		
 		if self.instance:
-			if model_type is not None and model_type in self.types and hasattr(self.types[model_type], field_name):
-				field = getattr(self.types[model_type], field_name)
+			if instance_type is not None and instance_type in self.types:
+				try:
+					field = self.types[instance_type]._meta.get_field(field_name, many_to_many)
+				
+				except FieldDoesNotExist:
+					pass
 			
 			# This instance hasn't been commited to the database yet, so it
 			# could be fresh and empty. In this case lets just lie and hope
