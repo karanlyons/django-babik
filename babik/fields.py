@@ -20,9 +20,9 @@ class BabikField(models.Field):
 	related_model = None
 	remote_field = None
 	
-	def __init__(self, attrs_field, attr_name=None, *args, **kwargs):
+	def __init__(self, attrs_field, *args, **kwargs):
 		self.attrs_field = attrs_field
-		self.attr_name = attr_name
+		self.attr_name = kwargs.pop('attr_name', None)
 		
 		super(BabikField, self).__init__(*args, **kwargs)
 		
