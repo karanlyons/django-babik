@@ -74,7 +74,11 @@ class BabikField(models.Field):
 			raise AttributeError('Underwritten field %s has not been loaded' % self.attrs_field)
 
 
-for field in (
+def babik_field_factory(base_field, name=None):
+	return type(name if name else b'Babik%s' % base_field.__name__, (BabikField, base_field), {})
+
+
+for base_field in (
 	models.BigIntegerField,
 	models.BooleanField,
 	models.CharField,
@@ -93,4 +97,4 @@ for field in (
 	models.TextField,
 	models.URLField,
 ):
-	locals()['Babik%s' % field.__name__] = type(b'Babik%s' % field.__name__, (BabikField, field), {})
+	locals()['Babik%s' % base_field.__name__] = babik_field_factory(base_field)
