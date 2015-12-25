@@ -3,13 +3,24 @@
 
 from __future__ import division, absolute_import, print_function, unicode_literals
 
+from copy import copy, deepcopy
+
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 from django.db.models.options import make_immutable_fields_list, Options
+from .fields import BabikJSONField
 
 
 class DynamicOptions(Options):
 	def _patch(self, instance):
+		'''
+		Shallow copies all the prexisting attributes of the instance's original
+		Options, and saves a reference back to the instance. Since we shallow
+		copy all that we can, the overheard of a per instance as opposed to per
+		class Options is minimized.
+		
+		'''
+		
 		self.__dict__.update({k: v for k, v in instance.__class__._meta.__dict__.iteritems() if k != 'virtual_fields'})
 		self.instance = instance
 		self._virtual_fields = instance.__class__._meta.virtual_fields
@@ -20,6 +31,9 @@ class DynamicOptions(Options):
 		
 		else:
 			super(DynamicOptions, self).add_field(field, virtual)
+			
+			if isinstance(field, BabikJSONField):
+				field.instance = self.instance
 	
 	@property
 	def fields(self):

@@ -11,6 +11,14 @@ from .utils import HideMetaOpts
 
 
 class DynamicModelMeta(HideMetaOpts):
+	def __new__(cls, name, bases, attrs):
+		new_class = super(DynamicModelMeta, cls).__new__(cls, name, bases, attrs)
+		
+		if hasattr(new_class._meta, 'type_field'):
+			new_class._meta.get_field(new_class._meta.type_field).model = new_class
+		
+		return new_class
+	
 	default_meta_opts = {
 		'attrs_field': None,
 		'type_field': None,
@@ -54,26 +62,6 @@ class DynamicModel(models.Model):
 			patched_meta.__class__ = DynamicOptions
 			patched_meta._patch(self)
 			self._meta = patched_meta
-	
-	def save(self, *args, **kwargs):
-		if self.type and self.type in self._meta.types:
-			errors = {}
-			
-			for field in self._meta.types[self.type]._meta.fields:
-				raw_value = getattr(self, field.attname)
-				if field.blank and raw_value in field.empty_values:
-					continue
-				
-				try:
-					setattr(self, field.attname, field.clean(raw_value, self))
-				
-				except ValidationError as error:
-					errors[field.name] = error.error_list
-			
-			if errors:
-				raise ValidationError(errors)
-		
-		super(DynamicModel, self).save(*args, **kwargs)
 	
 	def __getattribute__(self, name):
 		dct = super(DynamicModel, self).__getattribute__('__dict__')

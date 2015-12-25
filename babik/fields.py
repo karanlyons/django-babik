@@ -3,7 +3,75 @@
 
 from __future__ import division, absolute_import, print_function, unicode_literals
 
+import simplejson as json
+from psycopg2.extras import Json, register_default_jsonb
+
+from django.contrib.postgres.fields import JSONField
+from django.core import exceptions
 from django.db import models
+
+
+class DecimalSafeJsonEncoder(Json):
+	def dumps(self, obj):
+		return json.dumps(obj, use_decimal=True)
+
+
+class BabikJSONField(JSONField):
+	def get_prep_value(self, value):
+		if value is not None:
+			return DecimalSafeJsonEncoder(value)
+		
+		else:
+			return value
+	
+	def validate(self, value, model_instance):
+		super(BabikJSONField, self).validate(value, model_instance)
+		
+		try:
+			json.dumps(value)
+		
+		except TypeError:
+			raise exceptions.ValidationError(
+				self.error_messages['invalid'],
+				code='invalid',
+				params={'value': value},
+			)
+	
+	def get_db_prep_save(self, value, connection):
+		model_type = value.get('type', None)
+		
+		if model_type and model_type in self.model._meta.types:
+			errors = {}
+			
+			for field in self.model._meta.types[model_type]._meta.fields:
+				raw_value = value[field.attname]
+				
+				if field.blank and raw_value in field.empty_values:
+					continue
+				
+				try:
+					value[field.attname] = field.get_db_prep_save(raw_value, connection)
+				
+				except exceptions.ValidationError as error:
+					errors[field.name] = error.error_list
+			
+			if errors:
+				raise exceptions.ValidationError(errors)
+		
+		else:
+			raise exceptions.ValidationError(
+				'No type specified for model',
+				code='invalid',
+			)
+		
+		return super(BabikJSONField, self).get_db_prep_save(value, connection)
+
+
+def decimal_safe_json_decoder(data):
+	return json.loads(data, use_decimal=True)
+
+
+register_default_jsonb(globally=True, loads=decimal_safe_json_decoder)
 
 
 class BabikField(models.Field):
