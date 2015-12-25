@@ -6,9 +6,88 @@ from __future__ import division, absolute_import, print_function, unicode_litera
 import simplejson as json
 from psycopg2.extras import Json, register_default_jsonb
 
+from django.forms.widgets import Select
 from django.contrib.postgres.fields import JSONField
 from django.core import exceptions
 from django.db import models
+
+
+class BabikTypeField(models.Field):
+	widget = Select
+	
+	def __init__(self, *args, **kwargs):
+		super(BabikTypeField, self).__init__(*args, **kwargs)
+		
+		flat = []
+		
+		for choice, value in self.choices:
+			if isinstance(value, (list, tuple)):
+				flat.extend(value)
+			
+			else:
+				flat.append((choice, value))
+		
+		self.choice_db_to_verbose = dict(flat)
+		self.choice_verbose_to_db = {v: k for k, v in flat}
+	
+	@property
+	def flatchoices(self):
+		flat = []
+		
+		for choice, value in self.choices:
+			if isinstance(value, (list, tuple)):
+				for optgroup_choice, optgroup_value in value:
+					flat.extend(((optgroup_choice, optgroup_value), (optgroup_value, optgroup_value)))
+			
+			else:
+				flat.extend(((choice, value), (value, value)))
+		
+		return flat
+	
+	def from_db_value(self, value, expression, connection, context):
+		if not isinstance(value, basestring):
+			value = self.choice_db_to_verbose.get(value, value)
+		
+		return value
+	
+	def get_prep_value(self, value):
+		if not isinstance(value, (int, long)):
+			value = self.choice_verbose_to_db.get(value, value)
+		
+		return value
+	
+	def get_db_prep_value(self, value, connection, prepared=False):
+		if not isinstance(value, (int, long)):
+			value = self.choice_verbose_to_db.get(value, value)
+		
+		return super(BabikTypeField, self).get_db_prep_value(value, connection, prepared)
+	
+	def get_internal_type(self):
+		return 'IntegerField'
+	
+	def to_python(self, value):
+		if not isinstance(value, basestring):
+			value = self.choice_db_to_verbose.get(value, value)
+		
+		return value
+	
+	def value_to_string(self, obj):
+		if not isinstance(obj, (int, long)):
+			obj = self.choice_verbose_to_db.get(obj, obj)
+		
+		return obj
+	
+	def validate(self, value, model_instace):
+		if not isinstance(value, (int, long)):
+			value = self.choice_verbose_to_db.get(value, value)
+		
+		return super(BabikTypeField, self).validate(value, model_instace)
+	
+	def run_validators(self, value):
+		if not isinstance(value, (int, long)):
+			value = self.choice_verbose_to_db.get(value, value)
+		
+		super(BabikTypeField, self).run_validators(value)
 
 
 class DecimalSafeJsonEncoder(Json):
@@ -16,7 +95,36 @@ class DecimalSafeJsonEncoder(Json):
 		return json.dumps(obj, use_decimal=True)
 
 
-class BabikJSONField(JSONField):
+class BabikAttrsField(JSONField):
+	def __init__(self, types, *args, **kwargs):
+		self.types = types
+		self.type_key = kwargs.pop('type_key', 'type')
+		
+		super(BabikAttrsField, self).__init__(*args, **kwargs)
+	
+	def contribute_to_class(self, cls, name):
+		self.model = cls
+		
+		if self.type_key is None:
+			for field in self.model._meta.fields:
+				if isinstance(field, BabikTypeField):
+					self.type_key = field.attname
+					
+					break
+		
+		super(BabikAttrsField, self).contribute_to_class(cls, name)
+	
+	def deconstruct(self):
+		name, path, args, kwargs = super(BabikField, self).deconstruct()
+		
+		if self.type_key:
+			kwargs['type_key'] = self.type_key
+		
+		if self.types:
+			kwargs['types'] = self.types
+		
+		return name, path, args, kwargs
+	
 	def get_prep_value(self, value):
 		if value is not None:
 			return DecimalSafeJsonEncoder(value)
@@ -25,7 +133,7 @@ class BabikJSONField(JSONField):
 			return value
 	
 	def validate(self, value, model_instance):
-		super(BabikJSONField, self).validate(value, model_instance)
+		super(BabikAttrsField, self).validate(value, model_instance)
 		
 		try:
 			json.dumps(value)
@@ -38,33 +146,36 @@ class BabikJSONField(JSONField):
 			)
 	
 	def get_db_prep_save(self, value, connection):
-		model_type = value.get('type', None)
+		model_type = None
 		
-		if model_type and model_type in self.model._meta.types:
-			errors = {}
+		if self.type_key in value:
+			model_type = self.types.get(value[self.type_key], None)
 			
-			for field in self.model._meta.types[model_type]._meta.fields:
-				raw_value = value[field.attname]
+			if model_type:
+				errors = {}
 				
-				if field.blank and raw_value in field.empty_values:
-					continue
+				for field in model_type._meta.fields:
+					raw_value = value[field.attname]
+					
+					if field.blank and raw_value in field.empty_values:
+						continue
+					
+					try:
+						value[field.attname] = field.get_db_prep_save(raw_value, connection)
+					
+					except exceptions.ValidationError as error:
+						errors[field.name] = error.error_list
 				
-				try:
-					value[field.attname] = field.get_db_prep_save(raw_value, connection)
-				
-				except exceptions.ValidationError as error:
-					errors[field.name] = error.error_list
-			
-			if errors:
-				raise exceptions.ValidationError(errors)
+				if errors:
+					raise exceptions.ValidationError(errors)
 		
-		else:
+		if model_type is None:
 			raise exceptions.ValidationError(
 				'No type specified for model',
 				code='invalid',
 			)
 		
-		return super(BabikJSONField, self).get_db_prep_save(value, connection)
+		return super(BabikAttrsField, self).get_db_prep_save(value, connection)
 
 
 def decimal_safe_json_decoder(data):

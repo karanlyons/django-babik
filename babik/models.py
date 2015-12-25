@@ -4,31 +4,11 @@
 from __future__ import division, absolute_import, print_function, unicode_literals
 
 from django.db import models
-from django.core.exceptions import ValidationError
 
 from .options import DynamicOptions
-from .utils import HideMetaOpts
-
-
-class DynamicModelMeta(HideMetaOpts):
-	def __new__(cls, name, bases, attrs):
-		new_class = super(DynamicModelMeta, cls).__new__(cls, name, bases, attrs)
-		
-		if hasattr(new_class._meta, 'type_field'):
-			new_class._meta.get_field(new_class._meta.type_field).model = new_class
-		
-		return new_class
-	
-	default_meta_opts = {
-		'attrs_field': None,
-		'type_field': None,
-		'types': None,
-	}
 
 
 class DynamicModel(models.Model):
-	__metaclass__ = DynamicModelMeta
-	
 	class Meta:
 		abstract = True
 	
@@ -64,42 +44,22 @@ class DynamicModel(models.Model):
 			self._meta = patched_meta
 	
 	def __getattribute__(self, name):
-		dct = super(DynamicModel, self).__getattribute__('__dict__')
 		meta = super(DynamicModel, self).__getattribute__('_meta')
+		model_type = getattr(meta, 'type', None)
 		
-		if (
-			name[0] != '_' and
-			getattr(meta, 'type_field', None) is not None
-			and dct.get(meta.type_field, None) is not None
-			and meta.attrs_field in dct
-			and dct[meta.type_field] in meta.types
-			and name in meta.types[dct[meta.type_field]]._meta._forward_fields_map
-		):
-			return super(DynamicModel, self).__getattribute__(meta.attrs_field).get(name)
+		if name[0] != '_' and model_type and name in model_type._meta._forward_fields_map:
+			return super(DynamicModel, self).__getattribute__(meta.attrs_field.attname).get(name)
 		
-		else:
-			return super(DynamicModel, self).__getattribute__(name)
+		return super(DynamicModel, self).__getattribute__(name)
 	
 	def __setattr__(self, name, value):
-		if (
-			getattr(self, self._meta.type_field, None) is not None
-			and hasattr(self, self._meta.attrs_field)
-			and getattr(self, self._meta.type_field) in self._meta.types
-			and name in self._meta.types[getattr(self, self._meta.type_field)]._meta._forward_fields_map
-		):
-			getattr(self, self._meta.attrs_field)[name] = value
+		model_type = getattr(self._meta, 'type', None)
+		
+		if model_type and name in model_type._meta._forward_fields_map:
+			getattr(self, self._meta.attrs_field.attname)[name] = value
 		
 		else:
 			super(DynamicModel, self).__setattr__(name, value)
-	
-	def __delattr__(self, name):
-		if (
-			getattr(self, self._meta.type_field, None) is not None
-			and hasattr(self, self._meta.attrs_field)
-			and getattr(self, self._meta.type_field) in self._meta.types
-			and name in self._meta.types[getattr(self, self._meta.type_field)]._meta._forward_fields_map
-		):
-			del(getattr(self, self._meta.attrs_field)[name])
 		
-		else:
-			super(DynamicModel, self).__delattr__(name)
+		if hasattr(self._meta, 'type_field') and name == self._meta.type_field.attname:
+			getattr(self, self._meta.attrs_field.attname)[self._meta.attrs_field.type_key] = value

@@ -3,12 +3,10 @@
 
 from __future__ import division, absolute_import, print_function, unicode_literals
 
-from copy import copy, deepcopy
-
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 from django.db.models.options import make_immutable_fields_list, Options
-from .fields import BabikJSONField
+from .fields import BabikAttrsField, BabikTypeField
 
 
 class DynamicOptions(Options):
@@ -23,7 +21,26 @@ class DynamicOptions(Options):
 		
 		self.__dict__.update({k: v for k, v in instance.__class__._meta.__dict__.iteritems() if k != 'virtual_fields'})
 		self.instance = instance
+		self.attrs_field = None
+		self.type_field = None
 		self._virtual_fields = instance.__class__._meta.virtual_fields
+		
+		if not(self.attrs_field and self.type_field):
+			for field in super(DynamicOptions, self).fields:
+				self._bind_babkik_fields(field)
+				
+				if self.attrs_field and self.type_field:
+					break
+	
+	@property
+	def type(self):
+		if self.attrs_field and self.attrs_field.type_key:
+			return self.attrs_field.types.get(
+				models.Model.__getattribute__(self.instance, '__dict__').get(self.attrs_field.attname, None).get(self.attrs_field.type_key, None)
+			)
+		
+		else:
+			return None
 	
 	def add_field(self, field, virtual=False):
 		if virtual:
@@ -31,38 +48,43 @@ class DynamicOptions(Options):
 		
 		else:
 			super(DynamicOptions, self).add_field(field, virtual)
-			
-			if isinstance(field, BabikJSONField):
-				field.instance = self.instance
+			self._bind_babkik_fields(field)
+	
+	def _bind_babkik_fields(self, field):
+		if isinstance(field, BabikAttrsField):
+			self.attrs_field = field
+		
+		elif isinstance(field, BabikTypeField):
+			self.type_field = field
 	
 	@property
 	def fields(self):
-		instance_type = getattr(self.instance, self.type_field, None)
+		instance_type = self.type
 		
-		if instance_type in self.types:
-			return make_immutable_fields_list('fields', super(DynamicOptions, self).fields + self.types[instance_type]._meta.fields)
+		if instance_type:
+			return make_immutable_fields_list('fields', super(DynamicOptions, self).fields + self.attrs_field.type._meta.fields)
 		
 		else:
 			return super(DynamicOptions, self).fields
 	
 	@property
 	def virtual_fields(self):
-		instance_type = getattr(self.instance, self.type_field, None)
+		instance_type = self.type
 		
-		if instance_type in self.types:
-			return self._virtual_fields + list(self.types[instance_type]._meta.fields)
+		if instance_type:
+			return self._virtual_fields + list(self.attrs_field.type._meta.fields)
 		
 		else:
 			return self._virtual_fields
 	
 	def get_field(self, field_name, many_to_many=None):
 		field = None
-		instance_type = getattr(self.instance, self.type_field, None)
+		instance_type = self.type
 		
 		if self.instance:
-			if instance_type is not None and instance_type in self.types:
+			if instance_type is not None:
 				try:
-					field = self.types[instance_type]._meta.get_field(field_name, many_to_many)
+					field = instance_type._meta.get_field(field_name, many_to_many)
 				
 				except FieldDoesNotExist:
 					pass
