@@ -108,9 +108,12 @@ class DecimalSafeJsonEncoder(Json):
 
 
 class BabikAttrsField(JSONField):
-	def __init__(self, types, *args, **kwargs):
-		self.types = types
+	def __init__(self, *args, **kwargs):
+		self.types = kwargs.pop('types', None)
 		self.type_key = kwargs.pop('type_key', 'type')
+		
+		if self.types:
+			self.potential_virtual_field_names = {field.attname for model_type in self.types.itervalues() for field in model_type._meta.fields}
 		
 		super(BabikAttrsField, self).__init__(*args, **kwargs)
 	
@@ -158,34 +161,35 @@ class BabikAttrsField(JSONField):
 			)
 	
 	def get_db_prep_save(self, value, connection):
-		model_type = None
-		
-		if self.type_key in value:
-			model_type = self.types.get(value[self.type_key], None)
+		if self.types:
+			model_type = None
 			
-			if model_type:
-				errors = {}
+			if self.type_key in value:
+				model_type = self.types.get(value[self.type_key], None)
 				
-				for field in model_type._meta.fields:
-					raw_value = value[field.attname]
+				if model_type:
+					errors = {}
 					
-					if field.blank and raw_value in field.empty_values:
-						continue
+					for field in model_type._meta.fields:
+						raw_value = value[field.attname]
+						
+						if field.blank and raw_value in field.empty_values:
+							continue
+						
+						try:
+							value[field.attname] = field.get_db_prep_save(raw_value, connection)
+						
+						except exceptions.ValidationError as error:
+							errors[field.name] = error.error_list
 					
-					try:
-						value[field.attname] = field.get_db_prep_save(raw_value, connection)
-					
-					except exceptions.ValidationError as error:
-						errors[field.name] = error.error_list
-				
-				if errors:
-					raise exceptions.ValidationError(errors)
-		
-		if model_type is None:
-			raise exceptions.ValidationError(
-				'No type specified for model',
-				code='invalid',
-			)
+					if errors:
+						raise exceptions.ValidationError(errors)
+			
+			if model_type is None:
+				raise exceptions.ValidationError(
+					'No type specified for model',
+					code='invalid',
+				)
 		
 		return super(BabikAttrsField, self).get_db_prep_save(value, connection)
 

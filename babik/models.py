@@ -63,7 +63,7 @@ class DynamicModel(models.Model):
 		model_type = getattr(meta, 'type', None)
 		
 		if name[0] != '_' and model_type and name in model_type._meta._forward_fields_map:
-			return super(DynamicModel, self).__getattribute__(meta.attrs_field.attname).get(name)
+			return model_type._meta._forward_fields_map[name].to_python(super(DynamicModel, self).__getattribute__(meta.attrs_field.attname).get(name))
 		
 		return super(DynamicModel, self).__getattribute__(name)
 	
@@ -71,15 +71,17 @@ class DynamicModel(models.Model):
 		model_type = getattr(self._meta, 'type', None)
 		
 		if model_type and name in model_type._meta._forward_fields_map:
+			value = model_type._meta._forward_fields_map[name].to_python(value)
+			
 			getattr(self, self._meta.attrs_field.attname)[name] = value
 		
 		else:
 			super(DynamicModel, self).__setattr__(name, value)
 		
 		if (
-			hasattr(self._meta, 'type_field')
+			self._meta.type_field
 			and name == self._meta.type_field.attname
-			and hasattr(self._meta, 'attrs_field')
+			and self._meta.attrs_field
 			and hasattr(self, self._meta.attrs_field.attname)
 		):
 			getattr(self, self._meta.attrs_field.attname)[self._meta.attrs_field.type_key] = value

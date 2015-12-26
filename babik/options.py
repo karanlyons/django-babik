@@ -46,7 +46,7 @@ class DynamicOptions(Options):
 	def type(self):
 		if self.instance and self.attrs_field and self.attrs_field.type_key:
 			return self.attrs_field.types.get(
-				models.Model.__getattribute__(self.instance, '__dict__').get(self.attrs_field.attname, None).get(self.attrs_field.type_key, None)
+				models.Model.__getattribute__(self.instance, '__dict__').get(self.attrs_field.attname, {}).get(self.attrs_field.type_key, None)
 			)
 		
 		else:
@@ -79,6 +79,15 @@ class DynamicOptions(Options):
 	
 	@property
 	def virtual_fields(self):
+		'''
+		Rather than patch every field's contribute_to_class method to assign
+		itself as virtual (requiring that ModelType have its own special
+		Options as well or that users use factory build Babik version of every
+		possible field), we just take all the fields in a ModelType and say
+		they're virtual, since they always will be.
+		
+		'''
+		
 		instance_type = self.type
 		
 		if instance_type:
@@ -91,19 +100,12 @@ class DynamicOptions(Options):
 		field = None
 		instance_type = self.type
 		
-		if self.instance:
-			if instance_type is not None:
-				try:
-					field = instance_type._meta.get_field(field_name, many_to_many)
-				
-				except FieldDoesNotExist:
-					pass
+		if instance_type:
+			try:
+				field = instance_type._meta.get_field(field_name, many_to_many)
 			
-			# This instance hasn't been commited to the database yet, so it
-			# could be fresh and empty. In this case lets just lie and hope
-			# that the field_name being requested will *eventually* exist.
-			elif self.instance._state.db is None and field_name not in self._forward_fields_map:
-				field = models.Field()
+			except FieldDoesNotExist:
+				pass
 		
 		# If we don't have an instance, we can't know its type, so we can't
 		# return the correct field.
@@ -113,22 +115,24 @@ class DynamicOptions(Options):
 				return super(DynamicOptions, self).get_field(field_name, many_to_many)
 			
 			except FieldDoesNotExist:
-				# There's no real field and we don't have an instance, so
-				# let's just lie again and hope we don't have to apologize
-				# later.
-				if not self.instance:
+				# There's no real field and we don't have an instance, so if
+				# this is a field name that *could* map to an eventual virtual
+				# field let's just lie again and hope we don't have to
+				# apologize later.
+				if not instance_type and self.attrs_field and field_name in self.attrs_field.potential_virtual_field_names:
 					field = models.Field()
+					
+					# Set some defaults for the field so it looks nice, and also tell
+					# Django that this field is not backed by a database column.
+					field.set_attributes_from_name(field_name)
+					field.concrete = False
+					field.column = None
+					field.db_column = None
+					field.db_index = False
 				
 				else:
 					raise
 		
-		# Set some defaults for the field so it looks nice, and also tell
-		# Django that this field is not backed by a database column.
-		if type(field) is models.Field:
-			field.set_attributes_from_name(field_name)
-			field.concrete = False
-			field.column = None
-		
-		field.model = self.instance
+		field.model = self.model
 		
 		return field

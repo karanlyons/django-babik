@@ -17,6 +17,8 @@ class ModelTypeMeta(models.base.ModelBase):
 				value.set_attributes_from_name(name)
 				value.concrete = False
 				value.column = None
+				value.db_column = None
+				value.db_index = False
 		
 		return new_class
 
