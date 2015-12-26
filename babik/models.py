@@ -8,7 +8,22 @@ from django.db import models
 from .options import DynamicOptions
 
 
+class DynamicModelMeta(models.base.ModelBase):
+	def __new__(cls, name, bases, attrs):
+		new_class = super(DynamicModelMeta, cls).__new__(cls, name, bases, attrs)
+		
+		patched_meta = type(b'DynamicOptions', (), {})()
+		patched_meta.__class__ = DynamicOptions
+		patched_meta._patch(model=new_class, meta=new_class._meta)
+		
+		new_class._meta = patched_meta
+		
+		return new_class
+
+
 class DynamicModel(models.Model):
+	__metaclass__ = DynamicModelMeta
+	
 	class Meta:
 		abstract = True
 	
@@ -40,7 +55,7 @@ class DynamicModel(models.Model):
 			# and then swap out that new object's class for DynamicOptions.
 			patched_meta = type(b'DynamicOptions', (), {})()
 			patched_meta.__class__ = DynamicOptions
-			patched_meta._patch(self)
+			patched_meta._patch(instance=self)
 			self._meta = patched_meta
 	
 	def __getattribute__(self, name):
@@ -61,5 +76,10 @@ class DynamicModel(models.Model):
 		else:
 			super(DynamicModel, self).__setattr__(name, value)
 		
-		if hasattr(self._meta, 'type_field') and name == self._meta.type_field.attname:
+		if (
+			hasattr(self._meta, 'type_field')
+			and name == self._meta.type_field.attname
+			and hasattr(self._meta, 'attrs_field')
+			and hasattr(self, self._meta.attrs_field.attname)
+		):
 			getattr(self, self._meta.attrs_field.attname)[self._meta.attrs_field.type_key] = value

@@ -30,6 +30,18 @@ class BabikTypeField(models.Field):
 		self.choice_db_to_verbose = dict(flat)
 		self.choice_verbose_to_db = {v: k for k, v in flat}
 	
+	def contribute_to_class(self, cls, name):
+		self.model = cls
+		
+		for field in self.model._meta.fields:
+			if isinstance(field, BabikAttrsField):
+				if field.type_key is None:
+					field.type_key = self.attname
+					
+					break
+		
+		super(BabikTypeField, self).contribute_to_class(cls, name)
+	
 	@property
 	def flatchoices(self):
 		flat = []

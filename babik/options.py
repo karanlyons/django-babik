@@ -10,7 +10,7 @@ from .fields import BabikAttrsField, BabikTypeField
 
 
 class DynamicOptions(Options):
-	def _patch(self, instance):
+	def _patch(self, instance=None, model=None, meta=None):
 		'''
 		Shallow copies all the prexisting attributes of the instance's original
 		Options, and saves a reference back to the instance. Since we shallow
@@ -19,11 +19,21 @@ class DynamicOptions(Options):
 		
 		'''
 		
-		self.__dict__.update({k: v for k, v in instance.__class__._meta.__dict__.iteritems() if k != 'virtual_fields'})
-		self.instance = instance
-		self.attrs_field = None
-		self.type_field = None
-		self._virtual_fields = instance.__class__._meta.virtual_fields
+		if meta:
+			self.__dict__.update({k: v for k, v in meta.__dict__.iteritems() if k != 'virtual_fields'})
+			self._virtual_fields = meta.virtual_fields
+		
+		elif instance:
+			self.__dict__.update({k: v for k, v in instance.__class__._meta.__dict__.iteritems() if k != 'virtual_fields'})
+			self._virtual_fields = instance.__class__._meta.virtual_fields
+		
+		elif model:
+			self.__dict__.update({k: v for k, v in model._meta.__dict__.iteritems() if k != 'virtual_fields'})
+			self._virtual_fields = model._meta.virtual_fields
+		
+		self.instance = instance if instance else getattr(self, 'instance', None)
+		self.attrs_field = getattr(self, 'attrs_field', None)
+		self.type_field = getattr(self, 'type_field', None)
 		
 		if not(self.attrs_field and self.type_field):
 			for field in super(DynamicOptions, self).fields:
@@ -34,7 +44,7 @@ class DynamicOptions(Options):
 	
 	@property
 	def type(self):
-		if self.attrs_field and self.attrs_field.type_key:
+		if self.instance and self.attrs_field and self.attrs_field.type_key:
 			return self.attrs_field.types.get(
 				models.Model.__getattribute__(self.instance, '__dict__').get(self.attrs_field.attname, None).get(self.attrs_field.type_key, None)
 			)
@@ -72,7 +82,7 @@ class DynamicOptions(Options):
 		instance_type = self.type
 		
 		if instance_type:
-			return self._virtual_fields + list(self.attrs_field.type._meta.fields)
+			return self._virtual_fields + list(self.type._meta.fields)
 		
 		else:
 			return self._virtual_fields
