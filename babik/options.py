@@ -72,7 +72,7 @@ class DynamicOptions(Options):
 		instance_type = self.type
 		
 		if instance_type:
-			return make_immutable_fields_list('fields', super(DynamicOptions, self).fields + self.attrs_field.type._meta.fields)
+			return make_immutable_fields_list('fields', super(DynamicOptions, self).fields + instance_type._meta.fields)
 		
 		else:
 			return super(DynamicOptions, self).fields

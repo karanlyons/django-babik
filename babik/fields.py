@@ -130,7 +130,7 @@ class BabikAttrsField(JSONField):
 		super(BabikAttrsField, self).contribute_to_class(cls, name)
 	
 	def deconstruct(self):
-		name, path, args, kwargs = super(BabikField, self).deconstruct()
+		name, path, args, kwargs = super(BabikAttrsField, self).deconstruct()
 		
 		if self.type_key:
 			kwargs['type_key'] = self.type_key

@@ -62,7 +62,7 @@ class DynamicModel(models.Model):
 		meta = super(DynamicModel, self).__getattribute__('_meta')
 		model_type = getattr(meta, 'type', None)
 		
-		if name[0] != '_' and model_type and name in model_type._meta._forward_fields_map:
+		if model_type and name in model_type._meta._forward_fields_map:
 			return model_type._meta._forward_fields_map[name].to_python(super(DynamicModel, self).__getattribute__(meta.attrs_field.attname).get(name))
 		
 		return super(DynamicModel, self).__getattribute__(name)
